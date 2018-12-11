@@ -9,11 +9,9 @@ platform :ios do
     )
   end
 
-  lane :remote_scan do |options|
-    FOLDER = '../iosapp'
-    
+  def upload_app(app_path)
     # calculate checksum of app
-    checksum = Zlib::crc32(Dir.glob("#{FOLDER}/**/*").map { |name| [name, File.mtime(name)] }.to_s)
+    checksum = Zlib::crc32(Dir.glob("#{app_path}/**/*").map { |name| [name, File.mtime(name)] }.to_s)
 
     # archive app
     archive = "../#{checksum}.zip"
@@ -25,11 +23,16 @@ platform :ios do
     # upload archive
     upload_id = upload_file(archive)
     # TODO skip additional upload if file was uploaded before 
-    # (assumption: if archive already existed, it was also uploaded: check via new API if true)
+    # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
+  end
+
+  lane :remote_scan do |options|
+    # upload app
+    app_path = '../iosapp' # TODO
+    upload_id = upload_app(app_path)
 
     # trigger build for upload
     url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}"
-    puts url
     created_request = download(url: url)
     # TODO handle eventual errors
 
