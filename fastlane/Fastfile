@@ -26,54 +26,37 @@ platform :ios do
     # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
   end
 
-  lane :remote_scan do |options|
-    # upload app
-    app_path = '../iosapp' # TODO
-    upload_id = upload_app(app_path)
-
-    # trigger build for upload
+  def trigger_remote_action(action, upload_id)
     url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}"
+    # TODO use action to define different actions to trigger
     created_request = download(url: url)
     # TODO handle eventual errors
+    created_request['request']['id']
+  end
 
-    #created_request = { "@type": "pending", "remaining_requests": 10, "repository": { "@type": "repository", "@href": "/repo/22348160", "@representation": "minimal", "id": 22348160, "name": "fastlane-experiment", "slug": "janpio/fastlane-experiment" }, "request": { "repository": { "id": 160982756, "owner_name": "janpio", "name": "fastlane-experiment" }, "user": { "id": 593598 }, "id": 142917625, "message": "Trigger build", "branch": "master", "config": { "env": { "matrix": [ "UPLOAD_ID=foo" ] } } }, "resource_type": "request" }
-    pp created_request.inspect
-    #request_id = created_request[:request][:id]
-    request_id = created_request['request']['id']
-    puts created_request.inspect
-    puts request_id
-
-    #poll status
-
-    REPOSITORY = 'janpio/fastlane-runner'
-
+  def retrieve_build(repository, request_id)
     require 'travis/client'
     Travis.connect
-
-    puts "# repo ###"
-    repo = Travis::Repository.find(slug: REPOSITORY)
-    #puts repo.inspect
-    #puts repo.methods.sort
-
-    puts "# requests ###"
+    repo = Travis::Repository.find(slug: repository)
     requests = repo.requests
-    puts requests.inspect
-
-    puts "# request ###"
     request = extract_request(requests, request_id);
-    puts request.inspect
-
-    puts "# builds ###"
     builds = request.builds
-    puts builds.inspect
-    puts builds.methods.sort
-
-    puts "# builds ###"
     build = builds.first
-    puts build.inspect
-    puts build.id
-    puts build.state
+  end
 
+  lane :remote_scan do |options|
+    # upload app
+    APP_PATH = '../iosapp' # TODO
+    upload_id = upload_app(APP_PATH)
+
+    # trigger build for upload
+    request_id = trigger_remote_action('scan', upload_id)
+
+    # poll request/build status
+
+    REPOSITORY = 'janpio/fastlane-runner'
+    build_id = retrieve_build(REPOSITORY, request_id)
+  
     loop do
       puts "# builds2 ###"
       build2 = Travis::Build.find(id: build.id)
