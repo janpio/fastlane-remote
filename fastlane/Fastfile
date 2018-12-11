@@ -9,6 +9,29 @@ platform :ios do
     )
   end
 
+  lane :remote_scan do |options|
+    APP_PATH = '../iosapp' # TODO    
+    REPOSITORY = 'janpio/fastlane-runner'
+
+    # upload app
+    upload_id = upload_app(APP_PATH)
+    puts "app uploaded"
+
+    # trigger build for upload
+    request_id = trigger_remote_action('scan', upload_id)
+    puts "remote action triggered"
+
+    # poll request/build status
+    spinner = TTY::Spinner.new("[:spinner] Waiting for remote action to finish...", format: :dots)
+    spinner.auto_spin
+    build = retrieve_build(REPOSITORY, request_id)
+    log = wait_and_retrieve_log(build)
+    spinner.success("Done")
+
+    # output log
+    output_log(log)
+  end
+
   def upload_app(app_path)
     # calculate checksum of app
     checksum = Zlib::crc32(Dir.glob("#{app_path}/**/*").map { |name| [name, File.mtime(name)] }.to_s)
@@ -24,6 +47,19 @@ platform :ios do
     upload_id = upload_file(archive)
     # TODO skip additional upload if file was uploaded before 
     # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
+  end
+
+  def upload_file(filename)
+    require 'net/http/post/multipart'
+
+    url = URI.parse('http://remote-fastlane.betamo.de/upload.php')
+    File.open(filename) do |file|
+      req = Net::HTTP::Post::Multipart.new url.path,
+        "datei" => UploadIO.new(file, "application/zip", filename)
+      res = Net::HTTP.start(url.host, url.port) do |http|
+        return http.request(req).body
+      end
+    end
   end
 
   def trigger_remote_action(action, upload_id)
@@ -44,58 +80,25 @@ platform :ios do
     build = builds.first
   end
 
-  lane :remote_scan do |options|
-    # upload app
-    APP_PATH = '../iosapp' # TODO
-    upload_id = upload_app(APP_PATH)
-
-    # trigger build for upload
-    request_id = trigger_remote_action('scan', upload_id)
-
-    # poll request/build status
-
-    REPOSITORY = 'janpio/fastlane-runner'
-    build_id = retrieve_build(REPOSITORY, request_id)
-  
-    loop do
-      puts "# builds2 ###"
-      build2 = Travis::Build.find(id: build.id)
-      puts build2
-      puts build2.id
-      puts build2.state
-
-      # exit when NOT created or started
-      # exit when 'passed'
-      # :created, :received, :started, :passed, :failed, :errored, :canceled
-      if(build2.state != 'created' && build2.state != 'received' && build2.state != 'started')
-        output_log(build2)
-        break
-      end
-
-      sleep(3)
-    end
-
-    #output result
-  end
-  
   def extract_request(requests, request_id)
-    puts "# extract ###"
     requests.each do |request|
       return request if request.id == request_id
     end
     return nil
   end
 
-  def upload_file(filename)
-    require 'net/http/post/multipart'
+  def wait_and_retrieve_log(build)
+    loop do
+      build2 = Travis::Build.find(id: build.id)
 
-    url = URI.parse('http://remote-fastlane.betamo.de/upload.php')
-    File.open(filename) do |file|
-      req = Net::HTTP::Post::Multipart.new url.path,
-        "datei" => UploadIO.new(file, "application/zip", filename)
-      res = Net::HTTP.start(url.host, url.port) do |http|
-        return http.request(req).body
-      end
+      # TODO start outputting log as soon as build is started
+      
+      # wait: :created, :received, :started, 
+      # break: :passed, :failed, :errored, :canceled
+      processing = (build2.state == 'created' || build2.state == 'received'  || build2.state == 'started')
+      return build2 if !processing
+
+      sleep(3)
     end
   end
 
