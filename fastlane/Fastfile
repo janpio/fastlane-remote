@@ -10,15 +10,24 @@ platform :ios do
   end
 
   lane :remote_scan do |options|
+    FOLDER = '../iosapp'
     
+    # calculate checksum of app
+    checksum = Zlib::crc32(Dir.glob("#{FOLDER}/**/*").map { |name| [name, File.mtime(name)] }.to_s)
 
-    #projectfolder = options[:project]
-    #upload app
-    zf = ZipFileGenerator.new("../iosapp", "../iosapp.zip")
-    zf.write()
-    upload_id = upload_file('../iosapp.zip')
+    # archive app
+    archive = "../#{checksum}.zip"
+    if(!File.exist?(archive)) 
+      zf = ZipFileGenerator.new("../iosapp", archive)
+      zf.write()
+    end
 
-    #trigger build
+    # upload archive
+    upload_id = upload_file(archive)
+    # TODO skip additional upload if file was uploaded before 
+    # (assumption: if archive already existed, it was also uploaded: check via new API if true)
+
+    # trigger build for upload
     url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}"
     puts url
     created_request = download(url: url)
@@ -34,7 +43,7 @@ platform :ios do
     #poll status
 
     REPOSITORY = 'janpio/fastlane-runner'
-    
+
     require 'travis/client'
     Travis.connect
 
