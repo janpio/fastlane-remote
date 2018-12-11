@@ -1,0 +1,186 @@
+default_platform('ios')
+
+platform :ios do
+
+  lane :test do
+    remote_scan(
+      project: "../iosapp/iosapp.xcodeproj",
+      devices: ["iPhone 5s"]
+    )
+  end
+
+  lane :remote_scan do |options|
+    
+
+    #projectfolder = options[:project]
+    #upload app
+    zf = ZipFileGenerator.new("../iosapp", "../iosapp.zip")
+    zf.write()
+    upload_id = upload_file('../iosapp.zip')
+
+    #trigger build
+    url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}"
+    puts url
+    created_request = download(url: url)
+    # TODO handle eventual errors
+
+    #created_request = { "@type": "pending", "remaining_requests": 10, "repository": { "@type": "repository", "@href": "/repo/22348160", "@representation": "minimal", "id": 22348160, "name": "fastlane-experiment", "slug": "janpio/fastlane-experiment" }, "request": { "repository": { "id": 160982756, "owner_name": "janpio", "name": "fastlane-experiment" }, "user": { "id": 593598 }, "id": 142917625, "message": "Trigger build", "branch": "master", "config": { "env": { "matrix": [ "UPLOAD_ID=foo" ] } } }, "resource_type": "request" }
+    pp created_request.inspect
+    #request_id = created_request[:request][:id]
+    request_id = created_request['request']['id']
+    puts created_request.inspect
+    puts request_id
+
+    #poll status
+
+    REPOSITORY = 'janpio/fastlane-runner'
+    
+    require 'travis/client'
+    Travis.connect
+
+    puts "# repo ###"
+    repo = Travis::Repository.find(slug: REPOSITORY)
+    #puts repo.inspect
+    #puts repo.methods.sort
+
+    puts "# requests ###"
+    requests = repo.requests
+    puts requests.inspect
+
+    puts "# request ###"
+    request = extract_request(requests, request_id);
+    puts request.inspect
+
+    puts "# builds ###"
+    builds = request.builds
+    puts builds.inspect
+    puts builds.methods.sort
+
+    puts "# builds ###"
+    build = builds.first
+    puts build.inspect
+    puts build.id
+    puts build.state
+
+    loop do
+      puts "# builds2 ###"
+      build2 = Travis::Build.find(id: build.id)
+      puts build2
+      puts build2.id
+      puts build2.state
+
+      # exit when NOT created or started
+      # exit when 'passed'
+      # :created, :received, :started, :passed, :failed, :errored, :canceled
+      if(build2.state != 'created' && build2.state != 'received' && build2.state != 'started')
+        output_log(build2)
+        break
+      end
+
+      sleep(3)
+    end
+
+    #output result
+  end
+  
+  def extract_request(requests, request_id)
+    puts "# extract ###"
+    requests.each do |request|
+      return request if request.id == request_id
+    end
+    return nil
+  end
+
+  def upload_file(filename)
+    require 'net/http/post/multipart'
+
+    url = URI.parse('http://remote-fastlane.betamo.de/upload.php')
+    File.open(filename) do |file|
+      req = Net::HTTP::Post::Multipart.new url.path,
+        "datei" => UploadIO.new(file, "application/zip", filename)
+      res = Net::HTTP.start(url.host, url.port) do |http|
+        return http.request(req).body
+      end
+    end
+  end
+
+  lane :log do
+    build_id = '465746250'
+
+    require 'travis/client'
+    Travis.connect
+    build2 = Travis::Build.find(id: build_id)
+    output_log(build2)
+  end
+
+  def output_log(build2)
+    #puts build2.methods.sort
+    log = build2.jobs.first.log
+    puts log
+
+    logtext = log.content
+
+    # extract relevant log
+    relevant_log = ''
+    keep = false
+    start_line = /Cruising over to lane 'test'/
+    end_line = /Cruising back to lane 'remote_scan'/
+    logtext.each_line do |line|
+      keep = false if line =~ end_line
+      relevant_log = relevant_log + line if keep == true
+      keep = true if line =~ start_line
+      # TODO remove travis stuff
+    end
+    puts relevant_log
+  end
+
+end
+
+require 'zip'
+
+# This is a simple example which uses rubyzip to
+# recursively generate a zip file from the contents of
+# a specified directory. The directory itself is not
+# included in the archive, rather just its contents.
+#
+# Usage:
+#   directoryToZip = "/tmp/input"
+#   outputFile = "/tmp/out.zip"
+#   zf = ZipFileGenerator.new(directoryToZip, outputFile)
+#   zf.write()
+class ZipFileGenerator
+
+# Initialize with the directory to zip and the location of the output archive.
+def initialize(inputDir, outputFile)
+  @inputDir = inputDir
+  @outputFile = outputFile
+end
+
+# Zip the input directory.
+def write()
+  entries = Dir.entries(@inputDir); entries.delete("."); entries.delete("..")
+  io = Zip::File.open(@outputFile, Zip::File::CREATE);
+
+  writeEntries(entries, "", io)
+  io.close();
+end
+
+# A helper method to make the recursion work.
+private
+def writeEntries(entries, path, io)
+
+  entries.each { |e|
+    zipFilePath = path == "" ? e : File.join(path, e)
+    diskFilePath = File.join(@inputDir, zipFilePath)
+    puts "Deflating " + diskFilePath
+    if  File.directory?(diskFilePath)
+      io.mkdir(zipFilePath)
+      subdir =Dir.entries(diskFilePath); subdir.delete("."); subdir.delete("..")
+      writeEntries(subdir, zipFilePath, io)
+    else
+      io.get_output_stream(zipFilePath) { |f| f.puts(File.open(diskFilePath, "rb").read())}
+    end
+  }
+end
+
+end
