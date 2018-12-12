@@ -152,6 +152,7 @@ module Fastlane
                                        description: "Create a development certificate instead of a distribution one",
                                        is_string: false, # true: verifies the input is a string, false: every kind of value
                                        default_value: false) # the default value if the user didn't provide one
+          # TODO other scan params
         ]
       end
 
