@@ -47,15 +47,24 @@ module Fastlane
         # archive app
         archive = "#{checksum}.zip"
         if(!File.exist?(archive))
+          spinner = TTY::Spinner.new("[:spinner] Zipping app", format: :dots)
+          spinner.auto_spin
           zf = ZipFileGenerator.new(zip_content_path, archive)
           zf.write()
+          spinner.success("Done")
+        else
+          puts "Archive already exists."
         end
-    
+        
+
+        spinner = TTY::Spinner.new("[:spinner] Uploading archive", format: :dots)
+        spinner.auto_spin
         # upload archive
         upload_id = upload_file(archive)
         # TODO skip additional upload if file was uploaded before 
         # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
-
+        spinner.success("Done")
+        upload_id
         # TODO handle eventual upload errors
       end
     
