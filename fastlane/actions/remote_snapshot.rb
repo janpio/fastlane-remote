@@ -14,11 +14,9 @@ module Fastlane
 
         # upload app
         upload_id = self.upload_app(APP_PATH)
-        puts "app uploaded (upload_id = #{upload_id})"
 
         # trigger build for upload
         remote_id = self.trigger_remote_action(CI_PROVIDER, 'snapshot', upload_id)
-        puts "remote action triggered (remote id = #{remote_id})"
 
         # poll request/build status
         spinner = TTY::Spinner.new("[:spinner] Waiting for remote action to finish...", format: :dots)
@@ -30,10 +28,22 @@ module Fastlane
             build_id = remote_id
         end
         log = self.wait_and_retrieve_log(CI_PROVIDER, build_id)
-        spinner.success("Done")
+        spinner.success("Done. Outputting log:")
 
         # output log
-        self.output_log(CI_PROVIDER, log)
+        screenshot_upload_id = self.output_log(CI_PROVIDER, log)
+
+        download_file(
+          url: "http://remote-fastlane.betamo.de/uploads/#{screenshot_upload_id}", 
+          destination_path: './tmp/archive.zip'
+        )
+        unzip(
+          file: "./tmp/archive.zip", 
+          destination_path: "./fastlane"
+        )
+
+        # TODO Trigger report generation
+        Snapshot::ReportsGenerator.new.generate
 
         # Actions.lane_context[SharedValues::REMOTE_SCAN_CUSTOM_VALUE] = "my_val"
       end
@@ -52,7 +62,7 @@ module Fastlane
           spinner.auto_spin
           zf = ZipFileGenerator.new(zip_content_path, archive)
           zf.write()
-          spinner.success("Done")
+          spinner.success("Done: #{archive}")
         else
           puts "Archive already exists."
         end
@@ -64,7 +74,7 @@ module Fastlane
         upload_id = upload_file(archive)
         # TODO skip additional upload if file was uploaded before 
         # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
-        spinner.success("Done")
+        spinner.success("Done: upload_id = #{upload_id}")
         upload_id
         # TODO handle eventual upload errors
       end
@@ -83,6 +93,8 @@ module Fastlane
       end
     
       def self.trigger_remote_action(ci_provider, action, upload_id)
+        spinner = TTY::Spinner.new("[:spinner] Triggering remote action...", format: :dots)
+        spinner.auto_spin
         url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}&ci_provider=#{ci_provider}" 
         # TODO use action to define different actions to trigger
         puts url;
@@ -90,10 +102,14 @@ module Fastlane
         # TODO handle eventual errors
 
         if ci_provider == 'travis'
-            created_request['request']['id']
+          id = created_request['request']['id']
         elsif ci_provider == 'azure'
-            created_request['id'] 
+          id = created_request['id'] 
         end
+
+        spinner.success("Running: remote id = #{id}")
+
+        return id
       end
     
       def self.retrieve_travis_build(repository, request_id)
@@ -131,7 +147,10 @@ module Fastlane
             # if correct state: retrieve log and return
             url = "http://remote-fastlane.betamo.de/poll_azure_pipelines_log.php?build_id=#{build_id}" 
             response = other_action.download(url: url)
-            return response if response != 'Still processing'
+            if response != 'Still processing'
+              puts url
+              return response if response != 'Still processing'
+            end
           end
 
           sleep(3)
