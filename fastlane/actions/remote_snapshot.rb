@@ -33,17 +33,21 @@ module Fastlane
         # output log
         screenshot_upload_id = self.output_log(CI_PROVIDER, log)
 
-        download_file(
+        spinner = TTY::Spinner.new("[:spinner] Downloading and unzipping screenshots...", format: :dots)
+        spinner.auto_spin
+        other_action.download_file(
           url: "http://remote-fastlane.betamo.de/uploads/#{screenshot_upload_id}", 
           destination_path: './tmp/archive.zip'
         )
-        unzip(
+        other_action.unzip(
           file: "./tmp/archive.zip", 
-          destination_path: "./fastlane"
+          destination_path: "./screenshots"
         )
+        spinner.success("Done.")
 
-        # TODO Trigger report generation
-        Snapshot::ReportsGenerator.new.generate
+        export_path = "./fastlane/screenshots/screenshots.html"
+        UI.success("Successfully created HTML file with an overview of all the screenshots: '#{export_path}'")
+        #system("open '#{export_path}'") unless Snapshot.config[:skip_open_summary]
 
         # Actions.lane_context[SharedValues::REMOTE_SCAN_CUSTOM_VALUE] = "my_val"
       end
