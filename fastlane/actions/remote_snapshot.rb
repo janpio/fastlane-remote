@@ -48,7 +48,7 @@ module Fastlane
         # archive app
         archive = "#{checksum}.zip"
         if(!File.exist?(archive))
-          spinner = TTY::Spinner.new("[:spinner] Zipping app", format: :dots)
+          spinner = TTY::Spinner.new("[:spinner] Zipping app...", format: :dots)
           spinner.auto_spin
           zf = ZipFileGenerator.new(zip_content_path, archive)
           zf.write()
@@ -58,7 +58,7 @@ module Fastlane
         end
         
 
-        spinner = TTY::Spinner.new("[:spinner] Uploading archive", format: :dots)
+        spinner = TTY::Spinner.new("[:spinner] Uploading archive...", format: :dots)
         spinner.auto_spin
         # upload archive
         upload_id = upload_file(archive)
@@ -89,7 +89,6 @@ module Fastlane
         created_request = other_action.download(url: url)
         # TODO handle eventual errors
 
-        puts created_request
         if ci_provider == 'travis'
             created_request['request']['id']
         elsif ci_provider == 'azure'
@@ -131,7 +130,6 @@ module Fastlane
             # poll build
             # if correct state: retrieve log and return
             url = "http://remote-fastlane.betamo.de/poll_azure_pipelines_log.php?build_id=#{build_id}" 
-            puts url
             response = other_action.download(url: url)
             return build if response != 'Still processing'
           end
