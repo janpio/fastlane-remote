@@ -131,7 +131,7 @@ module Fastlane
             # if correct state: retrieve log and return
             url = "http://remote-fastlane.betamo.de/poll_azure_pipelines_log.php?build_id=#{build_id}" 
             response = other_action.download(url: url)
-            return build if response != 'Still processing'
+            return response if response != 'Still processing'
           end
 
           sleep(3)
@@ -146,8 +146,8 @@ module Fastlane
         # extract relevant log
         relevant_log = ''
         keep = false
-        start_line = /Cruising over to lane 'test'/
-        end_line = /Cruising back to lane 'remote_scan'/
+        start_line = /Cruising over to lane 'screenshot'/
+        end_line = /Cruising back to lane 'remote_snapshot'/
         log.each_line do |line|
           keep = false if line =~ end_line
           relevant_log = relevant_log + line if keep == true
