@@ -9,4 +9,12 @@ platform :ios do
     )
   end  
 
+  lane :screenshot do
+    remote_snapshot(
+      project: "iosapp_with_snapshot/iosapp.xcodeproj",
+      devices: ["iPhone 5s"],
+      languages: ["en-US"]
+    )
+  end
+
 end
