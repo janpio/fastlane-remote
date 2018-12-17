@@ -8,6 +8,7 @@ module Fastlane
 
       APP_PATH = 'iosapp_with_snapshot' # TODO extract from options[:project]   
       REPOSITORY = 'janpio/fastlane-runner'
+      CI_PROVIDER = 'azure'
 
       def self.run(params)
 
@@ -16,18 +17,23 @@ module Fastlane
         puts "app uploaded (upload_id = #{upload_id})"
 
         # trigger build for upload
-        request_id = self.trigger_remote_action('snapshot', upload_id)
-        puts "remote action triggered (request_id = #{request_id})"
+        remote_id = self.trigger_remote_action(CI_PROVIDER, 'snapshot', upload_id)
+        puts "remote action triggered (remote id = #{remote_id})"
 
         # poll request/build status
         spinner = TTY::Spinner.new("[:spinner] Waiting for remote action to finish...", format: :dots)
         spinner.auto_spin
-        build = self.retrieve_build(REPOSITORY, request_id)
-        log = self.wait_and_retrieve_log(build)
+        if CI_PROVIDER == 'travis'
+            build = self.retrieve_travis_build(REPOSITORY, remote_id)
+            build_id = build.id
+        elsif CI_PROVIDER == 'azure'
+            build_id = remote_id
+        end
+        log = self.wait_and_retrieve_log(CI_PROVIDER, build_id)
         spinner.success("Done")
 
         # output log
-        self.output_log(log)
+        self.output_log(CI_PROVIDER, log)
 
         # Actions.lane_context[SharedValues::REMOTE_SCAN_CUSTOM_VALUE] = "my_val"
       end
@@ -66,16 +72,22 @@ module Fastlane
         end
       end
     
-      def self.trigger_remote_action(action, upload_id)
-        url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}"
+      def self.trigger_remote_action(ci_provider, action, upload_id)
+        url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}&ci_provider=#{ci_provider}" 
         # TODO use action to define different actions to trigger
         puts url;
         created_request = other_action.download(url: url)
         # TODO handle eventual errors
-        created_request['request']['id']
+
+        puts created_request
+        if ci_provider == 'travis'
+            created_request['request']['id']
+        elsif ci_provider == 'azure'
+            created_request['id'] 
+        end
       end
     
-      def self.retrieve_build(repository, request_id)
+      def self.retrieve_travis_build(repository, request_id)
         require 'travis/client'
         Travis.connect
         repo = Travis::Repository.find(slug: repository)
@@ -92,36 +104,47 @@ module Fastlane
         return nil
       end
     
-      def self.wait_and_retrieve_log(build)
+      def self.wait_and_retrieve_log(ci_provider, build_id)
         loop do
-          build2 = Travis::Build.find(id: build.id)
-    
-          # TODO start outputting log as soon as build is started
-    
-          # wait: :created, :received, :started, 
-          # break: :passed, :failed, :errored, :canceled
-          processing = (build2.state == 'created' || build2.state == 'received'  || build2.state == 'started')
-          return build2 if !processing
-    
+          if ci_provider == 'travis'
+            build = Travis::Build.find(id: build_id)
+        
+            # TODO start outputting log as soon as build is started
+        
+            # wait: :created, :received, :started, 
+            # break: :passed, :failed, :errored, :canceled
+            processing = (build.state == 'created' || build.state == 'received'  || build.state == 'started')
+            return build if !processing
+          elsif ci_provider == 'azure'
+            # TODO
+            # azure: notStarted, inProgress, 
+            # poll build
+            # if correct state: retrieve log and return
+            url = "http://remote-fastlane.betamo.de/poll_azure_pipelines_log.php?build_id=#{build_id}" 
+            puts url
+            response = other_action.download(url: url)
+            return build if response != 'Still processing'
+          end
+
           sleep(3)
         end
       end
     
-      def self.output_log(build2)
-        log = build2.jobs.first.log
-    
-        full_log = log.content
+      def self.output_log(ci_provider, log)
+        if ci_provider == 'travis'
+          log = log.jobs.first.log.content
+        end
     
         # extract relevant log
         relevant_log = ''
         keep = false
         start_line = /Cruising over to lane 'test'/
         end_line = /Cruising back to lane 'remote_scan'/
-        full_log.each_line do |line|
+        log.each_line do |line|
           keep = false if line =~ end_line
           relevant_log = relevant_log + line if keep == true
           keep = true if line =~ start_line
-          # TODO remove travis stuff
+          # TODO remove other travis stuff
         end
         puts relevant_log
       end
