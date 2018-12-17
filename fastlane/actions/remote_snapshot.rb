@@ -41,8 +41,9 @@ module Fastlane
       def self.upload_app(app_path)
         zip_content_path = "#{app_path}/.."
         
+        
         # calculate checksum of app
-        checksum = Zlib::crc32(Dir.glob("#{zip_content_path}/**/*").map { |name| [name, File.mtime(name)] }.to_s)
+        checksum = Zlib::crc32(Dir.glob("#{zip_content_path}/**/*[^zip]").map { |name| [name, File.mtime(name)] }.to_s)
     
         # archive app
         archive = "#{checksum}.zip"
@@ -253,7 +254,8 @@ end
 
 # Zip the input directory.
 def write()
-  entries = Dir.entries(@inputDir); entries.delete("."); entries.delete("..")
+  #entries = Dir.entries(@inputDir); entries.delete("."); entries.delete("..")
+  entries = Dir.entries(@inputDir).reject { |f| f =~ /\.$|\.git|\.zip/ } # via https://stackoverflow.com/a/12342439/252627
   io = Zip::File.open(@outputFile, Zip::File::CREATE);
 
   writeEntries(entries, "", io)
