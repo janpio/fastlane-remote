@@ -33,13 +33,15 @@ module Fastlane
       end
 
       def self.upload_app(app_path)
+        zip_content_path = "#{app_path}/.."
+        
         # calculate checksum of app
-        checksum = Zlib::crc32(Dir.glob("#{app_path}/../**/*").map { |name| [name, File.mtime(name)] }.to_s)
+        checksum = Zlib::crc32(Dir.glob("#{zip_content_path}/**/*").map { |name| [name, File.mtime(name)] }.to_s)
     
         # archive app
         archive = "#{checksum}.zip"
-        if(!File.exist?(archive)) 
-          zf = ZipFileGenerator.new(APP_PATH, archive)
+        if(!File.exist?(archive))
+          zf = ZipFileGenerator.new(zip_content_path, archive)
           zf.write()
         end
     
@@ -47,6 +49,8 @@ module Fastlane
         upload_id = upload_file(archive)
         # TODO skip additional upload if file was uploaded before 
         # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
+
+        # TODO handle eventual upload errors
       end
     
       def self.upload_file(filename)
