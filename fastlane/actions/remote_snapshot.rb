@@ -162,6 +162,9 @@ module Fastlane
           log = log.jobs.first.log.content
         end
     
+        # extract screenshot_upload_id
+        screenshot_upload_id = log.match(/<UPLOAD_ID>(.*)<\/UPLOAD_ID/m)[1]
+
         # extract relevant log
         relevant_log = ''
         keep = false
@@ -174,6 +177,8 @@ module Fastlane
           # TODO remove other travis stuff
         end
         puts relevant_log
+
+        return screenshot_upload_id
       end
 
       #####################################################
