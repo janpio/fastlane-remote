@@ -7,32 +7,113 @@ module Fastlane
     class RemoteSnapshotAction < Action
 
       APP_PATH = 'iosapp_with_snapshot' # TODO extract from options[:project]   
-      REPOSITORY = 'janpio/fastlane-runner'
       CI_PROVIDER = 'azure'
+      ACTION = 'snapshot'
 
       def self.run(params)
+        app_upload_id        = self.upload_app(APP_PATH)
+        remote_id            = self.trigger_remote_action(CI_PROVIDER, ACTION, app_upload_id)
+        log                  = self.wait_and_retrieve_log(CI_PROVIDER, remote_id)
+        screenshot_upload_id = self.output_log(CI_PROVIDER, log, ACTION)
+        self.download_screenshots(screenshot_upload_id)
+      
+        # Actions.lane_context[SharedValues::REMOTE_SCAN_CUSTOM_VALUE] = "my_val"
+      end
 
-        # upload app
-        upload_id = self.upload_app(APP_PATH)
+      def self.upload_app(app_path)
+        zip_content_path = "#{app_path}/.." # TODO param
+        
+        # archive app
+        checksum = Zlib::crc32(Dir.glob("#{zip_content_path}/**/*[^zip]").map { |name| [name, File.mtime(name)] }.to_s)
+        archive = "#{checksum}.zip"
+        if(!File.exist?(archive))
+          spinner = TTY::Spinner.new("[:spinner] Zipping app...", format: :dots)
+          spinner.auto_spin
+          zf = ZipFileGenerator.new(zip_content_path, archive)
+          zf.write()
+          spinner.success("Done: #{archive}")
+        else
+          puts "Archive already exists."
+        end
+        
+        # upload archive
+        spinner = TTY::Spinner.new("[:spinner] Uploading archive...", format: :dots)
+        spinner.auto_spin
+        upload_id = upload_file(archive)
+        # TODO skip additional upload if file was uploaded before (assumption: if archive already existed, it was also uploaded: check via new API if true)
+        spinner.success("Done: upload_id = #{upload_id}")
+        upload_id
+      end
+    
+      def self.upload_file(filename)
+        require 'net/http/post/multipart'
+    
+        url = URI.parse('http://remote-fastlane.betamo.de/upload.php')
+        File.open(filename) do |file|
+          req = Net::HTTP::Post::Multipart.new url.path,
+            "datei" => UploadIO.new(file, "application/zip", filename)
+          res = Net::HTTP.start(url.host, url.port) do |http|
+            # TODO handle eventual upload errors
+            return http.request(req).body
+          end
+        end
+      end
+    
+      def self.trigger_remote_action(ci_provider, action, upload_id)
+        spinner = TTY::Spinner.new("[:spinner] Triggering remote action...", format: :dots)
+        spinner.auto_spin
+        url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}&ci_provider=#{ci_provider}" 
+        created_request = other_action.download(url: url)
+        # TODO handle eventual errors
 
-        # trigger build for upload
-        remote_id = self.trigger_remote_action(CI_PROVIDER, 'snapshot', upload_id)
+        # TODO trigger_build.php should just return the ID, nothing else - making this code obsolete
+        if ci_provider == 'travis'
+          id = created_request['request']['id']
+        elsif ci_provider == 'azure'
+          id = created_request['id'] 
+        end
 
-        # poll request/build status
+        spinner.success("Running: remote id = #{id}")
+
+        return id
+      end
+    
+      def self.wait_and_retrieve_log(ci_provider, remote_id)
         spinner = TTY::Spinner.new("[:spinner] Waiting for remote action to finish...", format: :dots)
         spinner.auto_spin
-        if CI_PROVIDER == 'travis'
-            build = self.retrieve_travis_build(REPOSITORY, remote_id)
-            build_id = build.id
-        elsif CI_PROVIDER == 'azure'
-            build_id = remote_id
+        loop do
+          url = "http://remote-fastlane.betamo.de/retrieve_log.php?ci_provider=#{ci_provider}&id=#{remote_id}"           
+          response = other_action.download(url: url)
+          if response != 'Still processing' # TODO check for HTTP code here
+            spinner.success("Done. Outputting log:")
+            return response if response != 'Still processing'
+          end
+          sleep(3)
         end
-        log = self.wait_and_retrieve_log(CI_PROVIDER, build_id)
-        spinner.success("Done. Outputting log:")
+      end
+    
+      def self.output_log(ci_provider, log, action)    
+        # extract screenshot_upload_id
+        screenshot_upload_id = log.match(/<UPLOAD_ID>(.*)<\/UPLOAD_ID/m)[1]
 
-        # output log
-        screenshot_upload_id = self.output_log(CI_PROVIDER, log)
+        # extract relevant action log
+        # TODO maybe better do on server side?
+        relevant_log = ''
+        keep = false
+        start_line = /Cruising over to lane 'screenshot'/ # TODO
+        end_line = /Cruising back to lane 'remote_snapshot'/ # TODO
+        log.each_line do |line|
+          keep = false if line =~ end_line
+          relevant_log = relevant_log + line if keep == true
+          keep = true if line =~ start_line
+        end
+        # TODO remove other CI specific stuff (maybe better on server side?)
+        puts relevant_log
 
+        return screenshot_upload_id
+      end
+
+      def self.download_screenshots(screenshot_upload_id)
         spinner = TTY::Spinner.new("[:spinner] Downloading and unzipping screenshots...", format: :dots)
         spinner.auto_spin
         other_action.download_file(
@@ -47,144 +128,9 @@ module Fastlane
 
         export_path = "./fastlane/screenshots/screenshots.html"
         UI.success("Successfully created HTML file with an overview of all the screenshots: '#{export_path}'")
-        #system("open '#{export_path}'") unless Snapshot.config[:skip_open_summary]
-
-        # Actions.lane_context[SharedValues::REMOTE_SCAN_CUSTOM_VALUE] = "my_val"
+        #system("open '#{export_path}'") unless Snapshot.config[:skip_open_summary] # TODO
       end
-
-      def self.upload_app(app_path)
-        zip_content_path = "#{app_path}/.."
-        
-        
-        # calculate checksum of app
-        checksum = Zlib::crc32(Dir.glob("#{zip_content_path}/**/*[^zip]").map { |name| [name, File.mtime(name)] }.to_s)
-    
-        # archive app
-        archive = "#{checksum}.zip"
-        if(!File.exist?(archive))
-          spinner = TTY::Spinner.new("[:spinner] Zipping app...", format: :dots)
-          spinner.auto_spin
-          zf = ZipFileGenerator.new(zip_content_path, archive)
-          zf.write()
-          spinner.success("Done: #{archive}")
-        else
-          puts "Archive already exists."
-        end
-        
-
-        spinner = TTY::Spinner.new("[:spinner] Uploading archive...", format: :dots)
-        spinner.auto_spin
-        # upload archive
-        upload_id = upload_file(archive)
-        # TODO skip additional upload if file was uploaded before 
-        # (assumption: if archive already existed, it was also uploaded: check via new API if true)  end
-        spinner.success("Done: upload_id = #{upload_id}")
-        upload_id
-        # TODO handle eventual upload errors
-      end
-    
-      def self.upload_file(filename)
-        require 'net/http/post/multipart'
-    
-        url = URI.parse('http://remote-fastlane.betamo.de/upload.php')
-        File.open(filename) do |file|
-          req = Net::HTTP::Post::Multipart.new url.path,
-            "datei" => UploadIO.new(file, "application/zip", filename)
-          res = Net::HTTP.start(url.host, url.port) do |http|
-            return http.request(req).body
-          end
-        end
-      end
-    
-      def self.trigger_remote_action(ci_provider, action, upload_id)
-        spinner = TTY::Spinner.new("[:spinner] Triggering remote action...", format: :dots)
-        spinner.auto_spin
-        url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}&ci_provider=#{ci_provider}" 
-        # TODO use action to define different actions to trigger
-        puts url;
-        created_request = other_action.download(url: url)
-        # TODO handle eventual errors
-
-        if ci_provider == 'travis'
-          id = created_request['request']['id']
-        elsif ci_provider == 'azure'
-          id = created_request['id'] 
-        end
-
-        spinner.success("Running: remote id = #{id}")
-
-        return id
-      end
-    
-      def self.retrieve_travis_build(repository, request_id)
-        require 'travis/client'
-        Travis.connect
-        repo = Travis::Repository.find(slug: repository)
-        requests = repo.requests
-        request = self.extract_request(requests, request_id);
-        builds = request.builds
-        build = builds.first
-      end
-    
-      def self.extract_request(requests, request_id)
-        requests.each do |request|
-          return request if request.id == request_id
-        end
-        return nil
-      end
-    
-      def self.wait_and_retrieve_log(ci_provider, build_id)
-        loop do
-          if ci_provider == 'travis'
-            build = Travis::Build.find(id: build_id)
-        
-            # TODO start outputting log as soon as build is started
-        
-            # wait: :created, :received, :started, 
-            # break: :passed, :failed, :errored, :canceled
-            processing = (build.state == 'created' || build.state == 'received'  || build.state == 'started')
-            return build if !processing
-          elsif ci_provider == 'azure'
-            # TODO
-            # azure: notStarted, inProgress, 
-            # poll build
-            # if correct state: retrieve log and return
-            url = "http://remote-fastlane.betamo.de/poll_azure_pipelines_log.php?build_id=#{build_id}" 
-            response = other_action.download(url: url)
-            if response != 'Still processing'
-              puts url
-              return response if response != 'Still processing'
-            end
-          end
-
-          sleep(3)
-        end
-      end
-    
-      def self.output_log(ci_provider, log)
-        if ci_provider == 'travis'
-          log = log.jobs.first.log.content
-        end
-    
-        # extract screenshot_upload_id
-        screenshot_upload_id = log.match(/<UPLOAD_ID>(.*)<\/UPLOAD_ID/m)[1]
-
-        # extract relevant log
-        relevant_log = ''
-        keep = false
-        start_line = /Cruising over to lane 'screenshot'/
-        end_line = /Cruising back to lane 'remote_snapshot'/
-        log.each_line do |line|
-          keep = false if line =~ end_line
-          relevant_log = relevant_log + line if keep == true
-          keep = true if line =~ start_line
-          # TODO remove other travis stuff
-        end
-        puts relevant_log
-
-        return screenshot_upload_id
-      end
-
+      
       #####################################################
       # @!group Documentation
       #####################################################
