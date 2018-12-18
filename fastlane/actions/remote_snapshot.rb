@@ -62,7 +62,11 @@ module Fastlane
       def self.trigger_remote_action(ci_provider, action, upload_id)
         spinner = TTY::Spinner.new("[:spinner] Triggering remote action...", format: :dots)
         spinner.auto_spin
-        url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}&ci_provider=#{ci_provider}" 
+        url = "http://remote-fastlane.betamo.de/trigger_build.php?upload_id=#{upload_id}&action=#{action}&ci_provider=#{ci_provider}"
+        if ENV['repo'] && ENV['branch']
+          url = url + "&repo=#{ENV['repo']}&branch=#{ENV['branch']}"
+        end
+        puts url
         created_request = other_action.download(url: url)
         # TODO handle eventual errors
 
