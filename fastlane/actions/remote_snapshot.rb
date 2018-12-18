@@ -41,7 +41,7 @@ module Fastlane
         spinner.auto_spin
         upload_id = upload_file(archive)
         # TODO skip additional upload if file was uploaded before (assumption: if archive already existed, it was also uploaded: check via new API if true)
-        spinner.success("Done: upload_id = #{upload_id}")
+        spinner.success("Done (upload_id = #{upload_id})")
         upload_id
       end
     
@@ -66,7 +66,6 @@ module Fastlane
         if ENV['repo'] && ENV['branch']
           url = url + "&repo=#{ENV['repo']}&branch=#{ENV['branch']}"
         end
-        puts url
         created_request = other_action.download(url: url)
         # TODO handle eventual errors
 
@@ -77,7 +76,7 @@ module Fastlane
           id = created_request['id'] 
         end
 
-        spinner.success("Running: remote id = #{id}")
+        spinner.success("Running (remote id = #{id})")
 
         return id
       end
@@ -89,8 +88,8 @@ module Fastlane
           url = "http://remote-fastlane.betamo.de/retrieve_log.php?ci_provider=#{ci_provider}&id=#{remote_id}"           
           response = other_action.download(url: url)
           if response != 'Still processing' # TODO check for HTTP code here
-            spinner.success("Done. Outputting log:")
-            return response if response != 'Still processing'
+            spinner.success("Done.")
+            return response
           end
           sleep(3)
         end
@@ -98,7 +97,10 @@ module Fastlane
     
       def self.output_log(ci_provider, log, action)    
         # extract screenshot_upload_id
-        screenshot_upload_id = log.match(/<UPLOAD_ID>(.*)<\/UPLOAD_ID/m)[1]
+        match = log.match(/<UPLOAD_ID>(.*)<\/UPLOAD_ID/m)
+        if match
+          screenshot_upload_id = match[1]
+        end
 
         # extract relevant action log
         # TODO maybe better do on server side?
