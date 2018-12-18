@@ -17,4 +17,9 @@ platform :ios do
     )
   end
 
+  lane :build do
+    remote_gym(
+      project: "iosapp_with_snapshot/iosapp.xcodeproj"
+    )
+  end
 end
