@@ -7,7 +7,7 @@ module Fastlane
     class RemoteSnapshotAction < Action
 
       APP_PATH = 'iosapp_with_snapshot' # TODO extract from options[:project]   
-      CI_PROVIDER = 'azure'
+      CI_PROVIDER = 'azure' # TODO Extract this ci_provider stuff into the server
       ACTION = 'snapshot'
 
       def self.run(params)
